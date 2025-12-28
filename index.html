@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Skyjo Ultimate</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { --bg: #1a1a2e; --panel: #16213e; --accent: #e94560; --turn: #00ff00; --text: #fff; }
+        body { font-family: sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; padding-bottom: 100px; overflow-x: hidden; }
+        .hidden { display: none !important; }
+        
+        .btn { background: var(--accent); color: white; border: none; padding: 12px 20px; border-radius: 25px; font-weight: bold; cursor: pointer; }
+        .btn-green { background: #27ae60; }
+        .btn-admin { background: #533483; font-size: 10px; padding: 5px 10px; }
+
+        #login-screen { height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #000; }
+        input { padding: 12px; border-radius: 8px; border: 1px solid #533483; background: #0f3460; color: white; margin: 10px; text-align: center; }
+        
+        .top-bar { padding: 10px; background: var(--panel); display: flex; justify-content: space-between; align-items: center; }
+        
+        #opponents { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 5px; padding: 5px; }
+        .opp-area { width: 45%; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 8px; border: 1px solid transparent; }
+
+        .center-table { display: flex; justify-content: center; gap: 40px; margin: 15px 0; }
+        
+        .card { width: 40px; height: 65px; border-radius: 6px; display: flex; justify-content: center; align-items: center; font-weight: 900; font-size: 16px; background: #0f3460; border: 2px solid #ccc; position: relative; }
+        .card-hidden { background: repeating-linear-gradient(45deg, #0f3460, #0f3460 10px, #16213e 10px, #16213e 20px); color: transparent; }
+        .flying-card { position: fixed; z-index: 9999; pointer-events: none; transition: all 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); box-shadow: 0 10px 20px rgba(0,0,0,0.5); border-radius: 6px; }
+        
+        .selected { border: 3px solid #f1c40f !important; transform: scale(1.05); box-shadow: 0 0 10px #f1c40f; }
+        .c-neg { background: #6c5ce7 !important; color: white !important; }
+        .c-zero { background: #00cec9 !important; color: white !important; }
+        .c-low { background: #badc58 !important; color: #333 !important; }
+        .c-mid { background: #f1c40f !important; color: #333 !important; }
+        .c-high { background: #e74c3c !important; color: white !important; }
+        .c-cleared { opacity: 0.1; background: transparent !important; border: 1px dashed #555; color: transparent !important; }
+
+        .player-area { background: rgba(255,255,255,0.08); padding: 10px; margin: 10px; border-radius: 10px; border: 2px solid transparent; }
+        .my-turn { border-color: var(--turn) !important; box-shadow: 0 0 10px rgba(0,255,0,0.2); }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; width: fit-content; margin: 0 auto; }
+        .opp-card { width: 20px; height: 32px; font-size: 10px; border-width: 1px; }
+
+        #win-screen { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 10000; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; overflow-y: auto; }
+        .podium-item { background: var(--panel); width: 100%; max-width: 300px; padding: 10px; margin: 3px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid var(--accent); }
+        .gold { border-left-color: #ffd700; background: rgba(255, 215, 0, 0.1); }
+        .penalty-text { color: #e94560; font-weight: bold; font-size: 10px; }
+
+        #chat-btn { position: fixed; bottom: 20px; right: 20px; width: 50px; height: 50px; border-radius: 50%; background: var(--accent); display: flex; justify-content: center; align-items: center; z-index: 200; }
+        #chat-panel { position: fixed; bottom: 80px; right: 20px; width: 280px; height: 350px; background: #222; border-radius: 10px; display: none; flex-direction: column; z-index: 199; border: 1px solid #444; }
+        #chat-msgs { flex: 1; overflow-y: auto; padding: 10px; font-size: 12px; }
+        .admin-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #000; padding: 5px; display: flex; justify-content: center; gap: 10px; font-size: 10px; z-index: 100; border-top: 1px solid #333; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+</head>
+<body>
+
+<div id="login-screen">
+    <h1>SKYJO</h1>
+    <input type="text" id="username" placeholder="Pseudo">
+    <input type="text" id="room-code" placeholder="Code Salon">
+    <button class="btn" onclick="checkAndJoin()">REJOINDRE</button>
+</div>
+
+<div id="game-screen" class="hidden">
+    <div class="top-bar">
+        <button onclick="document.getElementById('win-screen').classList.remove('hidden')" class="btn btn-admin">SCORES</button>
+        <div id="status-text">Prêt ?</div>
+        <button id="admin-start-btn" class="btn btn-green hidden" onclick="startGame(false)">LANCER</button>
+        <button onclick="confirmExit()" style="background:none; border:none; color:white;"><i class="fas fa-times"></i></button>
+    </div>
+
+    <div id="opponents"></div>
+
+    <div class="center-table">
+        <div onclick="drawFromDeck()">
+            <div style="text-align:center; font-size:10px;">PIOCHE</div>
+            <div id="deck-pile" class="card"><i class="fas fa-layer-group"></i></div>
+        </div>
+        <div onclick="clickDiscard()">
+            <div style="text-align:center; font-size:10px;">DEFAUSSE</div>
+            <div id="discard-pile" class="card">?</div>
+        </div>
+    </div>
+
+    <div id="my-area" class="player-area">
+        <h3 style="margin:0 0 5px 0; font-size:14px;">MOI <span id="my-score"></span></h3>
+        <div id="my-grid" class="grid"></div>
+    </div>
+
+    <div id="admin-controls" class="admin-bar hidden">
+        <span>ADMIN:</span>
+        <button class="btn btn-admin" onclick="startGame(false)">MANCHE SUIVANTE</button>
+        <button class="btn btn-admin" style="background:#c0392b" onclick="startGame(true)">RESET TOTAL</button>
+    </div>
+</div>
+
+<div id="win-screen" class="hidden">
+    <h2 id="win-title" style="color: #ffd700; margin-top:0;">CLASSEMENT</h2>
+    <div id="podium-list"></div>
+    <div style="margin-top:20px; display:flex; flex-direction:column; gap:10px; width:200px;">
+        <button id="admin-restart-win" class="btn btn-green hidden" onclick="startGame(false)">MANCHE SUIVANTE</button>
+        <button class="btn" onclick="document.getElementById('win-screen').classList.add('hidden')">RETOUR AU JEU</button>
+    </div>
+</div>
+
+<div id="chat-btn" onclick="toggleChat()"><i class="fas fa-comment"></i></div>
+<div id="chat-panel">
+    <div style="padding:10px; background:#333; border-radius:10px 10px 0 0; font-size:12px;">Chat</div>
+    <div id="chat-msgs"></div>
+    <div style="display:flex; padding:5px; background:#111;">
+        <input type="text" id="chat-input" style="flex:1; margin:0; padding:8px;">
+        <button onclick="sendChat()" class="btn" style="padding:0 15px;">OK</button>
+    </div>
+</div>
+
+<script>
+    window.addEventListener('beforeunload', (e) => { e.preventDefault(); e.returnValue = ''; });
+    function confirmExit() { if(confirm("Quitter ?")) location.reload(); }
+
+    var config = {
+        apiKey: "AIzaSyAXE1jp9yRQ3riMB4Y-HohTRvYtij2i1t4",
+        authDomain: "webskyjo.firebaseapp.com",
+        databaseURL: "https://webskyjo-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "webskyjo",
+        storageBucket: "webskyjo.firebasestorage.app",
+        messagingSenderId: "650976044098",
+        appId: "1:650976044098:web:7f8b4f8ec53c81354c39db"
+    };
+
+    if (!firebase.apps.length) firebase.initializeApp(config);
+    var db = firebase.database();
+    var myId = "u" + Math.floor(Math.random() * 999999);
+    var myName, roomCode, gameState = {};
+    var takingDiscard = false, mustFlip = false, chatOpen = false;
+
+    function checkAndJoin() {
+        myName = document.getElementById('username').value.trim();
+        roomCode = document.getElementById('room-code').value.trim().toUpperCase();
+        if(!myName || !roomCode) return;
+        db.ref('rooms/'+roomCode).once('value', snap => {
+            var val = snap.val();
+            if(val && val.status === 'playing' && !val.players[myId]) return alert("En cours");
+            if(!val || !val.players || !val.players[myId]) {
+                db.ref('rooms/'+roomCode+'/players/'+myId).update({name:myName, id:myId, totalScore:0});
+            }
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            startListening();
+        });
+    }
+
+    function startListening() {
+        db.ref('rooms/'+roomCode).on('value', snap => { if(snap.val()) { gameState = snap.val(); render(); } });
+        db.ref('rooms/'+roomCode+'/chat').limitToLast(1).on('child_added', snap => {
+            var m = snap.val(); document.getElementById('chat-msgs').innerHTML += `<div><b>${m.name}:</b> ${m.text}</div>`;
+            var d = document.getElementById('chat-msgs'); d.scrollTop = d.scrollHeight;
+        });
+    }
+
+    function animateFly(fromId, toId, value, callback) {
+        const fromEl = document.getElementById(fromId); const toEl = document.getElementById(toId);
+        if(!fromEl || !toEl) { if(callback) callback(); return; }
+        const rF = fromEl.getBoundingClientRect(); const rT = toEl.getBoundingClientRect();
+        const fly = document.createElement('div'); fly.className = "card flying-card revealed " + getColor(value);
+        fly.innerText = value; fly.style.left = rF.left + "px"; fly.style.top = rF.top + "px";
+        document.body.appendChild(fly);
+        setTimeout(() => { fly.style.left = rT.left + "px"; fly.style.top = rT.top + "px"; fly.style.transform = "rotate(360deg)"; }, 50);
+        setTimeout(() => { fly.remove(); if(callback) callback(); }, 600);
+    }
+
+    function drawFromDeck() {
+        if(gameState.turn !== myId || gameState.tempDraw || mustFlip || takingDiscard) return;
+        var card = gameState.deck.pop(); db.ref('rooms/'+roomCode).update({ deck: gameState.deck, tempDraw: card });
+    }
+
+    function clickDiscard() {
+        if(gameState.turn !== myId) return;
+        if(gameState.tempDraw !== null && gameState.tempDraw !== undefined) {
+            var val = gameState.tempDraw; animateFly('deck-pile', 'discard-pile', val);
+            mustFlip = true; db.ref('rooms/'+roomCode).update({ tempDraw: null, discard: val });
+        } else if(!mustFlip) { takingDiscard = !takingDiscard; render(); }
+    }
+
+    function clickMyCard(idx) {
+        if(gameState.turn !== myId) return;
+        var grid = JSON.parse(JSON.stringify(gameState.players[myId].grid));
+        if(mustFlip) {
+            if(grid[idx].visible) return; grid[idx].visible = true;
+            finishTurn(grid, gameState.discard); mustFlip = false;
+        } else if(gameState.tempDraw !== null && gameState.tempDraw !== undefined) {
+            var newVal = gameState.tempDraw; var oldVal = grid[idx].val;
+            db.ref('rooms/'+roomCode).update({ tempDraw: null }); 
+            animateFly('deck-pile', 'my-card-'+idx, newVal, () => {
+                animateFly('my-card-'+idx, 'discard-pile', oldVal);
+                grid[idx] = {val: newVal, visible:true, cleared:false}; finishTurn(grid, oldVal);
+            });
+        } else if(takingDiscard) {
+            var newVal = gameState.discard; var oldVal = grid[idx].val; takingDiscard = false;
+            animateFly('discard-pile', 'my-card-'+idx, newVal, () => {
+                animateFly('my-card-'+idx, 'discard-pile', oldVal);
+                grid[idx] = {val: newVal, visible:true, cleared:false}; finishTurn(grid, oldVal);
+            });
+        }
+    }
+
+    function finishTurn(grid, newDiscard) {
+        for(var c=0; c<4; c++){
+            if(grid[c].val===grid[c+4].val && grid[c+4].val===grid[c+8].val && grid[c].visible && grid[c+4].visible && grid[c+8].visible && !grid[c].cleared){
+                grid[c].cleared = grid[c+4].cleared = grid[c+8].cleared = true;
+            }
+        }
+        var pIds = Object.keys(gameState.players);
+        var next = pIds[(pIds.indexOf(myId)+1)%pIds.length];
+        var allVis = grid.every(c => c.visible);
+        var fin = gameState.finisher || (allVis ? myId : null);
+        var up = { ['players/'+myId+'/grid']: grid, discard: newDiscard };
+
+        if(fin && next === fin) {
+            up.status = "finished"; up.turn = "END";
+            let roundScores = {};
+            pIds.forEach(pid => {
+                let pGrid = (pid === myId) ? grid : gameState.players[pid].grid;
+                pGrid.forEach(c => c.visible = true);
+                roundScores[pid] = calculateScore(pGrid);
+                up['players/'+pid+'/grid'] = pGrid;
+            });
+            
+            // Regle du double
+            let finisherScore = roundScores[fin];
+            let isDoubled = false;
+            pIds.forEach(pid => { if(pid !== fin && roundScores[pid] < finisherScore) isDoubled = true; });
+
+            pIds.forEach(pid => {
+                let s = roundScores[pid];
+                let penalty = false;
+                if(pid === fin && isDoubled && s > 0) { s *= 2; penalty = true; }
+                up['players/'+pid+'/lastRound'] = s;
+                up['players/'+pid+'/penalty'] = penalty;
+                up['players/'+pid+'/totalScore'] = (gameState.players[pid].totalScore || 0) + s;
+            });
+        } else { up.turn = next; }
+        if(allVis && !gameState.finisher) up.finisher = myId;
+        db.ref('rooms/'+roomCode).update(up);
+    }
+
+    function render() {
+        var pIds = Object.keys(gameState.players || {});
+        var isAdmin = pIds[0] === myId;
+        document.getElementById('admin-controls').classList.toggle('hidden', !isAdmin);
+        document.getElementById('admin-start-btn').classList.toggle('hidden', !isAdmin || gameState.status === 'playing');
+        document.getElementById('admin-restart-win').classList.toggle('hidden', !isAdmin);
+
+        if(gameState.status === 'finished') showWinScreen(pIds);
+
+        document.getElementById('status-text').innerText = (gameState.turn === myId) ? "👉 À TOI !" : "Attente...";
+        document.getElementById('discard-pile').innerText = gameState.discard;
+        document.getElementById('discard-pile').className = "card revealed " + getColor(gameState.discard) + (takingDiscard ? " selected" : "");
+        
+        var pEl = document.getElementById('deck-pile');
+        if(gameState.tempDraw !== null && gameState.tempDraw !== undefined) {
+            pEl.innerText = gameState.tempDraw; pEl.className = "card revealed selected " + getColor(gameState.tempDraw);
+        } else {
+            pEl.innerHTML = '<i class="fas fa-layer-group"></i>'; pEl.className = "card card-hidden";
+        }
+
+        var myData = gameState.players[myId];
+        if(myData && myData.grid) {
+            var myGrid = document.getElementById('my-grid'); myGrid.innerHTML = '';
+            myData.grid.forEach((c, i) => {
+                var div = document.createElement('div'); div.id = "my-card-"+i;
+                div.className = "card " + (c.visible ? "revealed "+getColor(c.val) : "card-hidden") + (c.cleared ? " c-cleared":"");
+                div.innerText = c.visible ? c.val : ""; div.onclick = () => clickMyCard(i);
+                myGrid.appendChild(div);
+            });
+            document.getElementById('my-score').innerText = "(" + calculateScore(myData.grid) + ") Total: " + (myData.totalScore || 0);
+            document.getElementById('my-area').className = "player-area " + (gameState.turn === myId ? "my-turn":"");
+        }
+
+        var opp = document.getElementById('opponents'); opp.innerHTML = '';
+        pIds.forEach(pid => {
+            if(pid === myId) return;
+            var p = gameState.players[pid]; if(!p.grid) return;
+            var div = document.createElement('div'); div.className = "opp-area " + (gameState.turn === pid ? "my-turn":"");
+            var h = `<div style="font-size:10px; text-align:center;"><b>${p.name}</b><br>Tour: ${calculateScore(p.grid)} | Total: ${p.totalScore || 0}</div><div class="grid">`;
+            p.grid.forEach(c => { h += `<div class="card opp-card ${c.visible?'revealed '+getColor(c.val):''} ${c.cleared?'c-cleared':''}">${c.visible?c.val:''}</div>`; });
+            div.innerHTML = h + `</div>`; opp.appendChild(div);
+        });
+    }
+
+    function showWinScreen(pIds) {
+        var win = document.getElementById('win-screen'); var list = document.getElementById('podium-list');
+        win.classList.remove('hidden'); list.innerHTML = '';
+        var scores = pIds.map(id => ({ 
+            name: gameState.players[id].name, 
+            last: gameState.players[id].lastRound || 0,
+            total: gameState.players[id].totalScore || 0,
+            penalty: gameState.players[id].penalty
+        })).sort((a,b) => a.total - b.total);
+        
+        document.getElementById('win-title').innerText = (scores.some(s => s.total >= 100)) ? "PARTIE TERMINÉE !" : "SCORES GÉNÉRAUX";
+
+        scores.forEach((s, i) => {
+            list.innerHTML += `<div class="podium-item ${i===0?'gold':''}">
+                <span>${i===0?'🏆':i+1+'.'} <b>${s.name}</b></span>
+                <div style="text-align:right">
+                    <span style="font-size:12px;">+${s.last} ${s.penalty?'<span class="penalty-text">DOUBLÉ!</span>':''}</span><br>
+                    <b>Total: ${s.total}</b>
+                </div>
+            </div>`;
+        });
+    }
+
+    function calculateScore(g) { return g.reduce((sum, c) => (c.visible && !c.cleared) ? sum + c.val : sum, 0); }
+    function getColor(v) { if(v < 0) return 'c-neg'; if(v == 0) return 'c-zero'; if(v <= 4) return 'c-low'; if(v <= 8) return 'c-mid'; return 'c-high'; }
+
+    function startGame(resetTotal) {
+        var d = []; for(var i=0; i<5; i++) d.push(-2);
+        for(var i=-1; i<=12; i++) { for(var j=0; j<10; j++) d.push(i); }
+        d.sort(() => Math.random() - 0.5);
+        var up = { deck:d, discard:d.pop(), status:'playing', turn:Object.keys(gameState.players)[0], tempDraw:null, finisher:null };
+        Object.keys(gameState.players).forEach(pid => {
+            var g = []; for(var k=0; k<12; k++) g.push({val: d.pop(), visible:false, cleared:false});
+            g[0].visible = g[1].visible = true;
+            up['players/'+pid+'/grid'] = g;
+            if(resetTotal) up['players/'+pid+'/totalScore'] = 0;
+        });
+        db.ref('rooms/'+roomCode).update(up);
+    }
+
+    function toggleChat() { chatOpen = !chatOpen; document.getElementById('chat-panel').style.display = chatOpen ? 'flex' : 'none'; }
+    function sendChat() { var i = document.getElementById('chat-input'); if(!i.value) return; db.ref('rooms/'+roomCode+'/chat').push({name:myName, text:i.value}); i.value = ''; }
+</script>
+</body>
+</html>
