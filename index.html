@@ -154,67 +154,67 @@
     if (!firebase.apps.length) firebase.initializeApp(config);
     var db = firebase.database();
     
-    // Génération ID temporaire, sera écrasé si reconnexion
     var myId = "u" + Math.floor(Math.random() * 999999);
     var myName, roomCode, gameState = {};
     var takingDiscard = false, mustFlip = false, chatOpen = false;
-    var chatSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'); // Son simple
+    var chatSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
 
+    // CONNEXION
     function checkAndJoin() {
         var inputName = document.getElementById('username').value.trim();
         var inputCode = document.getElementById('room-code').value.trim().toUpperCase();
         if(!inputName || !inputCode) return;
 
-        // 9. RECONNEXION INTELLIGENTE
-        db.ref('rooms/'+inputCode+'/players').once('value', snap => {
-            var players = snap.val() || {};
-            var existingId = Object.keys(players).find(key => players[key].name === inputName);
+        db.ref('rooms/'+inputCode).once('value', snap => {
+            var val = snap.val();
             
-            if(existingId) {
-                myId = existingId; // On reprend l'ID existant
-                console.log("Reconnexion avec l'ID : " + myId);
+            if(!val) { // Création salle
+                myName = inputName; roomCode = inputCode;
+                createPlayerAndJoin();
+                db.ref('rooms/'+roomCode).update({status: 'waiting', stack: []});
+                return;
             }
 
-            myName = inputName;
-            roomCode = inputCode;
-            
-            db.ref('rooms/'+roomCode).once('value', snapRoom => {
-                var val = snapRoom.val();
-                
-                // Si pas de salle, on crée le joueur
-                if(!val || !val.players || !val.players[myId]) {
-                    db.ref('rooms/'+roomCode+'/players/'+myId).update({name:myName, id:myId, totalScore:0});
-                    // Si salle nouvelle, status waiting
-                    if(!val) db.ref('rooms/'+roomCode).update({status: 'waiting', stack: []});
+            var players = val.players || {};
+            var existingId = Object.keys(players).find(key => players[key].name === inputName);
+
+            if(val.status === 'playing') {
+                if(existingId) { // Reconnexion
+                    myId = existingId; myName = inputName; roomCode = inputCode;
+                    goToGame();
+                } else {
+                    alert("Impossible : Partie en cours !");
                 }
-                
-                document.getElementById('login-screen').classList.add('hidden');
-                document.getElementById('game-screen').classList.remove('hidden');
-                startListening();
-            });
+            } else { // Lobby
+                myName = inputName; roomCode = inputCode;
+                if(existingId) myId = existingId;
+                createPlayerAndJoin();
+            }
         });
     }
 
-    function startListening() {
-        db.ref('rooms/'+roomCode).on('value', snap => { 
-            if(snap.val()) { 
-                gameState = snap.val(); 
-                render(); 
-            } 
+    function createPlayerAndJoin() {
+        db.ref('rooms/'+roomCode+'/players/'+myId).update({name:myName, id:myId, totalScore:0}, (error) => {
+            if(!error) goToGame();
         });
-        
-        // 5. CHAT COMPLET (plus de limitToLast(1))
+    }
+
+    function goToGame() {
+        document.getElementById('login-screen').classList.add('hidden');
+        document.getElementById('game-screen').classList.remove('hidden');
+        startListening();
+    }
+
+    function startListening() {
+        db.ref('rooms/'+roomCode).on('value', snap => { if(snap.val()) { gameState = snap.val(); render(); } });
         db.ref('rooms/'+roomCode+'/chat').on('child_added', snap => {
             var m = snap.val(); 
             document.getElementById('chat-msgs').innerHTML += `<div style="margin-bottom:4px;"><b>${m.name}:</b> ${m.text}</div>`;
-            var d = document.getElementById('chat-msgs'); 
-            d.scrollTop = d.scrollHeight;
-            
-            // 2. INDICATEUR VISUEL + SON
+            var d = document.getElementById('chat-msgs'); d.scrollTop = d.scrollHeight;
             if(!chatOpen) {
                 document.getElementById('chat-badge').style.display = 'block';
                 document.getElementById('chat-btn').classList.add('chat-anim');
-                chatSound.play().catch(e => {}); // Jouer son si possible
+                chatSound.play().catch(e => {}); 
             }
         });
     }
@@ -223,20 +223,12 @@
         if(gameState.status !== 'playing') return;
         if(gameState.turn !== myId || gameState.tempDraw || mustFlip || takingDiscard) return;
         
-        // 7. PIOCHE VIDE : RESHUFFLE
         if(!gameState.deck || gameState.deck.length === 0) {
-            // Récupérer la stack (cartes sous la défausse)
             var stack = gameState.stack || [];
             if(stack.length === 0) return alert("Plus de cartes !");
-            
-            // On mélange la stack pour faire le nouveau deck
             stack.sort(() => Math.random() - 0.5);
-            
-            // On garde la défausse visible actuelle, la stack devient le deck
             db.ref('rooms/'+roomCode).update({ deck: stack, stack: [] });
-            // Petit délai pour l'UX puis on pioche
             setTimeout(() => {
-                // On relit gameState car il a changé
                 db.ref('rooms/'+roomCode+'/deck').once('value', s => {
                     var newDeck = s.val();
                     var card = newDeck.pop();
@@ -254,22 +246,12 @@
         if(gameState.status !== 'playing') return;
         if(gameState.turn !== myId) return;
         if(gameState.tempDraw !== null && gameState.tempDraw !== undefined) {
-            var val = gameState.tempDraw; 
-            animateFly('deck-pile', 'discard-pile', val);
+            var val = gameState.tempDraw; animateFly('deck-pile', 'discard-pile', val);
             mustFlip = true; 
-            
-            // On ajoute l'ancienne défausse à la "stack" (tas caché)
-            var oldStack = gameState.stack || [];
-            oldStack.push(gameState.discard);
-
-            db.ref('rooms/'+roomCode).update({ 
-                tempDraw: null, 
-                discard: val,
-                stack: oldStack
-            });
+            var oldStack = gameState.stack || []; oldStack.push(gameState.discard);
+            db.ref('rooms/'+roomCode).update({ tempDraw: null, discard: val, stack: oldStack });
         } else if(!mustFlip) { 
-            takingDiscard = !takingDiscard; 
-            render(); 
+            takingDiscard = !takingDiscard; render(); 
         }
     }
 
@@ -277,71 +259,46 @@
         if(gameState.status !== 'playing') return;
         if(gameState.turn !== myId) return;
         var grid = JSON.parse(JSON.stringify(gameState.players[myId].grid));
-        var actionDone = false;
-        var oldDiscard = gameState.discard;
         var oldStack = gameState.stack || [];
 
         if(mustFlip) {
             if(grid[idx].visible) return; 
             grid[idx].visible = true;
-            // On jette la carte piochée (qui est sur la defausse maintenant)
             finishTurn(grid, gameState.discard, oldStack, idx); 
             mustFlip = false;
-            actionDone = true;
         } else if(gameState.tempDraw !== null && gameState.tempDraw !== undefined) {
-            var newVal = gameState.tempDraw; 
-            var oldVal = grid[idx].val;
-            
-            // L'ancienne carte va sur la défausse, la défausse précédente va dans la stack
+            var newVal = gameState.tempDraw; var oldVal = grid[idx].val;
             oldStack.push(gameState.discard);
-            
             db.ref('rooms/'+roomCode).update({ tempDraw: null }); 
             animateFly('deck-pile', 'my-card-'+idx, newVal, () => {
                 animateFly('my-card-'+idx, 'discard-pile', oldVal);
                 grid[idx] = {val: newVal, visible:true, cleared:false}; 
                 finishTurn(grid, oldVal, oldStack, idx);
             });
-            actionDone = true;
         } else if(takingDiscard) {
-            var newVal = gameState.discard; 
-            var oldVal = grid[idx].val; 
-            takingDiscard = false;
-            
-            // Ici on échange avec la défausse. L'ancienne défausse est prise, l'ancienne carte devient la nouvelle défausse.
-            // Pas de changement dans la stack.
-            
+            var newVal = gameState.discard; var oldVal = grid[idx].val; takingDiscard = false;
             animateFly('discard-pile', 'my-card-'+idx, newVal, () => {
                 animateFly('my-card-'+idx, 'discard-pile', oldVal);
                 grid[idx] = {val: newVal, visible:true, cleared:false}; 
                 finishTurn(grid, oldVal, oldStack, idx);
             });
-            actionDone = true;
         }
     }
 
     function finishTurn(grid, newDiscard, stack, lastIdx) {
-        // 4. REGLE COLONNE -> DEFAUSSE
-        var colCleared = false;
-        var valCleared = null;
-
+        var colCleared = false; var valCleared = null;
         for(var c=0; c<4; c++){
             if(grid[c].val===grid[c+4].val && grid[c+4].val===grid[c+8].val && grid[c].visible && grid[c+4].visible && grid[c+8].visible && !grid[c].cleared){
                 grid[c].cleared = grid[c+4].cleared = grid[c+8].cleared = true;
-                colCleared = true;
-                valCleared = grid[c].val;
+                colCleared = true; valCleared = grid[c].val;
             }
         }
 
-        // Si colonne supprimée, les cartes vont sur la défausse
-        // La règle demandée : les 3 cartes vont sur la défausse.
-        // Donc : la nouvelle défausse devient la valeur de la colonne.
-        // Et on ajoute 2 copies de cette valeur + l'ancienne 'newDiscard' à la stack.
         if(colCleared) {
-            launchFireworks(); // 1. FEU D'ARTIFICE
-            stack.push(newDiscard); // L'ancienne défausse part sous le tas
-            stack.push(valCleared); // 1ere carte colonne
-            stack.push(valCleared); // 2eme carte colonne
-            newDiscard = valCleared; // 3eme carte colonne reste visible sur le dessus
+            launchFireworks(); 
+            stack.push(newDiscard); 
+            stack.push(valCleared); stack.push(valCleared); 
+            newDiscard = valCleared; 
         }
 
         var pIds = Object.keys(gameState.players);
@@ -351,9 +308,7 @@
         
         var up = { 
             ['players/'+myId+'/grid']: grid, 
-            discard: newDiscard,
-            stack: stack,
-            // 3. INDICATEUR DERNIERE CARTE
+            discard: newDiscard, stack: stack,
             lastAction: { player: myId, index: lastIdx }
         };
 
@@ -388,11 +343,10 @@
     function render() {
         var pIds = Object.keys(gameState.players || {});
         var isAdmin = pIds[0] === myId;
-        
-        // Gestion Lobby (6)
         var isWaiting = gameState.status === 'waiting' || !gameState.status;
+        
         document.getElementById('lobby-list').classList.toggle('hidden', !isWaiting);
-        document.getElementById('game-screen').classList.toggle('hidden', false); // Toujours afficher structure
+        document.getElementById('game-screen').classList.toggle('hidden', false);
         document.getElementById('opponents').classList.toggle('hidden', isWaiting);
         document.getElementById('my-area').classList.toggle('hidden', isWaiting);
         document.querySelector('.center-table').classList.toggle('hidden', isWaiting);
@@ -423,7 +377,6 @@
                 pEl.innerHTML = '<i class="fas fa-layer-group"></i>'; pEl.className = "card card-hidden";
             }
 
-            // MOI
             var myData = gameState.players[myId];
             if(myData && myData.grid) {
                 var myGrid = document.getElementById('my-grid'); myGrid.innerHTML = '';
@@ -438,7 +391,6 @@
                 document.getElementById('my-area').className = "player-area " + (gameState.turn === myId ? "my-turn":"");
             }
 
-            // OPPOSANTS
             var opp = document.getElementById('opponents'); opp.innerHTML = '';
             pIds.forEach(pid => {
                 if(pid === myId) return;
@@ -480,33 +432,26 @@
     function calculateScore(g) { return g.reduce((sum, c) => (c.visible && !c.cleared) ? sum + c.val : sum, 0); }
     function getColor(v) { if(v < 0) return 'c-neg'; if(v == 0) return 'c-zero'; if(v <= 4) return 'c-low'; if(v <= 8) return 'c-mid'; return 'c-high'; }
 
-    // 8. ANTI-MULTI CLIC NEXT ROUND
     var loadingNext = false;
     function nextRoundSafe() {
-        if(loadingNext) return;
-        loadingNext = true;
+        if(loadingNext) return; loadingNext = true;
         document.getElementById('btn-next-round').classList.add('disabled');
         startGame(false);
-        setTimeout(() => { 
-            loadingNext = false; 
-            document.getElementById('btn-next-round').classList.remove('disabled');
-        }, 3000);
+        setTimeout(() => { loadingNext = false; document.getElementById('btn-next-round').classList.remove('disabled'); }, 3000);
     }
 
     function startGame(resetTotal) {
-        var d = []; for(var i=0; i<5; i++) d.push(-2);
-        for(var i=-1; i<=12; i++) { for(var j=0; j<10; j++) d.push(i); }
+        // DISTRIBUTION EXACTE V7.1
+        var d = []; 
+        for(let i=0; i<5; i++) d.push(-2);
+        for(let i=0; i<10; i++) d.push(-1);
+        for(let i=0; i<15; i++) d.push(0);
+        for(let v=1; v<=12; v++) { for(let k=0; k<10; k++) d.push(v); }
         d.sort(() => Math.random() - 0.5);
         
         var up = { 
-            deck: d, 
-            discard: d.pop(), 
-            stack: [], // Reset du tas caché
-            status:'playing', 
-            turn: Object.keys(gameState.players)[0], 
-            tempDraw: null, 
-            finisher: null,
-            lastAction: null // Reset indicateur
+            deck: d, discard: d.pop(), stack: [], status:'playing', 
+            turn: Object.keys(gameState.players)[0], tempDraw: null, finisher: null, lastAction: null 
         };
         
         Object.keys(gameState.players).forEach(pid => {
@@ -514,6 +459,7 @@
             g[0].visible = g[1].visible = true;
             up['players/'+pid+'/grid'] = g;
             up['players/'+pid+'/lastRound'] = 0;
+            up['players/'+pid+'/penalty'] = false;
             if(resetTotal) up['players/'+pid+'/totalScore'] = 0;
         });
         db.ref('rooms/'+roomCode).update(up);
@@ -540,29 +486,18 @@
         setTimeout(() => { fly.remove(); if(callback) callback(); }, 600);
     }
 
-    // 1. ANIMATION FEU D'ARTIFICE (Simple canvas particles)
     function launchFireworks() {
         const canvas = document.getElementById('fireworks-canvas');
         const ctx = canvas.getContext('2d');
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
         let particles = [];
-        
         function createParticle(x, y) {
             const count = 30;
             for(let i=0; i<count; i++) {
-                particles.push({
-                    x: x, y: y,
-                    vx: (Math.random() - 0.5) * 10,
-                    vy: (Math.random() - 0.5) * 10,
-                    alpha: 1,
-                    color: `hsl(${Math.random()*360}, 100%, 50%)`
-                });
+                particles.push({x: x, y: y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, alpha: 1, color: `hsl(${Math.random()*360}, 100%, 50%)`});
             }
         }
-
         createParticle(window.innerWidth/2, window.innerHeight/2);
-
         function update() {
             ctx.clearRect(0,0, canvas.width, canvas.height);
             particles.forEach((p, index) => {
