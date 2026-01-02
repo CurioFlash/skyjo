@@ -324,7 +324,7 @@
             
             let finisherScore = roundScores[fin];
             let isDoubled = false;
-            pIds.forEach(pid => { if(pid !== fin && roundScores[pid] < finisherScore) isDoubled = true; });
+            pIds.forEach(pid => { if(pid !== fin && roundScores[pid] <= finisherScore) isDoubled = true; });
 
             pIds.forEach(pid => {
                 let s = roundScores[pid];
